@@ -1,11 +1,22 @@
-"use client";
+'use client';
 
 import React, { useState, useEffect } from 'react';
-import Papa from 'papaparse';
 import { Card, CardContent, CardFooter, CardHeader } from '@/components/ui/card';
 
-const NewsItem = ({ article, onAnalyzeSentiment, modelLoading }) => {
-  const [sentiment, setSentiment] = useState(null);
+const NewsItem = ({ article, onAnalyzeSentiment }) => {
+  const [sentimentInfo, setSentimentInfo] = useState(null);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+
+  const handleAnalyzeSentiment = async () => {
+    setIsAnalyzing(true);
+    try {
+      const result = await onAnalyzeSentiment(article.description);
+      setSentimentInfo(result);
+    } catch (error) {
+      console.error('Error analyzing sentiment:', error);
+    }
+    setIsAnalyzing(false);
+  };
 
   return (
     <Card className="mb-4 overflow-hidden">
@@ -17,10 +28,18 @@ const NewsItem = ({ article, onAnalyzeSentiment, modelLoading }) => {
           </CardHeader>
           <CardContent className="p-4">
             <p className="text-sm">{article.description}</p>
-            {sentiment && (
-              <p className="mt-2 text-sm font-semibold">
-                Sentiment: {sentiment.label} ({(sentiment.score * 100).toFixed(2)}%)
-              </p>
+            {sentimentInfo && (
+              <div className="mt-4">
+                <p className="font-semibold">Sentiment: {sentimentInfo.sentiment.label} ({(sentimentInfo.sentiment.score * 100).toFixed(2)}%)</p>
+                <p className="mt-2"><strong>Categories:</strong></p>
+                <ul className="list-disc pl-5">
+                  {sentimentInfo.categories.map((category, index) => (
+                    <li key={index}>{category.name} - {category.category}</li>
+                  ))}
+                </ul>
+                <p className="mt-2"><strong>Explanation:</strong></p>
+                <p className="text-sm">{sentimentInfo.explanation}</p>
+              </div>
             )}
           </CardContent>
         </div>
@@ -38,73 +57,37 @@ const NewsItem = ({ article, onAnalyzeSentiment, modelLoading }) => {
           <span className="text-sm">💬 {article.comments || 0} comments</span>
         </div>
         <button
-          onClick={() => onAnalyzeSentiment(article.description, setSentiment)}
-          disabled={modelLoading}
+          onClick={handleAnalyzeSentiment}
+          disabled={isAnalyzing}
           className="bg-blue-500 text-white py-1 px-3 rounded disabled:bg-gray-500"
         >
-          {modelLoading ? 'Loading Model...' : 'Analyze Sentiment'}
+          {isAnalyzing ? 'Analyzing...' : 'Analyze Sentiment'}
         </button>
       </CardFooter>
     </Card>
   );
 };
 
-const Page = () => {
+export default function Page() {
   const [articles, setArticles] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
-  const [modelLoading, setModelLoading] = useState(true);
 
   useEffect(() => {
-    fetch('/cryptocurrency_news.csv')
-      .then(response => response.text())
-      .then(csvData => {
-        Papa.parse(csvData, {
-          header: true,
-          complete: (result) => {
-            const parsedArticles = result.data.map(article => ({
-              ...article,
-              upvotes: Number(article.upvotes),
-              comments: Number(article.comments),
-              source: article.source || '', // Ensure source is correctly passed
-            }));
-            setArticles(parsedArticles);
-          },
-        });
-      })
-      .catch(error => console.error('Error loading CSV:', error));
-    
-    // Initialize the worker and check if the model is loaded
-    const worker = new Worker(new URL('worker.js', import.meta.url));
-    worker.postMessage({ text: 'Test Model Loading' });
-    worker.onmessage = (event) => {
-      if (event.data.status === 'complete') {
-        setModelLoading(false);
-      }
-    };
-
-    // Cleanup the worker
-    return () => worker.terminate();
+    fetch('/classify')
+      .then(response => response.json())
+      .then(data => setArticles(data))
+      .catch(error => console.error('Error fetching articles:', error));
   }, []);
 
-  // Function to analyze sentiment
-  const analyzeSentiment = (text, setSentiment) => {
-    const worker = new Worker(new URL('worker.js', import.meta.url));
-    worker.postMessage({ text });
-    worker.onmessage = (event) => {
-      if (event.data.status === 'complete') {
-        setSentiment(event.data.output[0]);
-      }
-    };
-    worker.onerror = (error) => {
-      console.error('Worker error:', error);
-    };
-  };
-
-  // Filter articles based on the search query
   const filteredArticles = articles.filter(article => 
     (article.title?.toLowerCase().includes(searchQuery.toLowerCase()) || '') ||
     (article.description?.toLowerCase().includes(searchQuery.toLowerCase()) || '')
   );
+
+  const analyzeSentiment = async (text) => {
+    const response = await fetch(`/classify?text=${encodeURIComponent(text)}`);
+    return response.json();
+  };
 
   return (
     <div className="container mx-auto p-4">
@@ -123,13 +106,10 @@ const Page = () => {
           <NewsItem 
             key={index} 
             article={article} 
-            onAnalyzeSentiment={analyzeSentiment} 
-            modelLoading={modelLoading} 
+            onAnalyzeSentiment={analyzeSentiment}
           />
         ))
       )}
     </div>
   );
-};
-
-export default Page;
+}
