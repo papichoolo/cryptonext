@@ -24,7 +24,7 @@ const topCryptos = [
 
 const cryptoCategorizer = async (text) => {
     const llm = new ChatGroq({
-        apiKey: "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",
+        apiKey: process.env.GROQ_API_KEY,
         model: "llama3-8b-8192"
     });
 
